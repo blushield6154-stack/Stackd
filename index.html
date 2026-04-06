@@ -288,6 +288,13 @@ function handleFile(event) {
   const file = event.target.files[0];
   if (!file) return;
   selectedFile = file;
+
+  // Reset previous result whenever a new photo is chosen
+  document.getElementById('result-card').classList.remove('show');
+  document.getElementById('error-card').classList.remove('show');
+  document.getElementById('scan-again-btn').style.display = 'none';
+  document.getElementById('scan-btn').style.display = 'block';
+
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = document.getElementById('preview-img');
@@ -394,8 +401,14 @@ Rules: Be realistic with secondhand prices. Poor condition = 40-60% of good pric
     }
 
     const data = await response.json();
-    const clean = data.content.replace(/```json|```/g, '').trim();
-    const result = JSON.parse(clean);
+    // Robust JSON extraction - handles any extra text Claude might add
+    let raw = data.content || '';
+    // Strip markdown code blocks
+    raw = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+    // Extract just the JSON object if there's surrounding text
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Could not parse response. Please try again.');
+    const result = JSON.parse(jsonMatch[0]);
     displayResult(result, itemPrice);
 
   } catch (err) {

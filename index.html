@@ -115,6 +115,13 @@
   .error-card.show { display: block; }
   .error-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; color: var(--skip); margin-bottom: 6px; }
   .error-msg { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+  .details-row { padding: 0 20px; max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; border-bottom: 0px solid #222; }
+  .details-row.visible { max-height: 160px; padding: 16px 20px; border-bottom: 1px solid #222; }
+  .details-textarea { width: 100%; background: var(--gray-mid); border: 1.5px solid #333; border-radius: 10px; color: var(--white); font-family: 'DM Sans', sans-serif; font-size: 14px; padding: 12px 14px; outline: none; resize: none; transition: border-color 0.15s; line-height: 1.5; }
+  .details-textarea:focus { border-color: var(--accent); }
+  .details-textarea::placeholder { color: #444; }
+  .details-hint { font-size: 11px; color: #444; margin-top: 8px; line-height: 1.5; }
   .ad-slot { background: #111; border: 1px dashed #222; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; }
   .ad-label { font-size: 10px; color: #333; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
   .ad-placeholder { font-size: 13px; color: #333; }
@@ -152,6 +159,14 @@
         <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
         Take photo with camera
       </button>
+    </div>
+
+
+    <!-- EXTRA DETAILS (slides open after photo selected) -->
+    <div class="details-row" id="details-row">
+      <div class="field-label">Add details <span style="color:#555;font-size:10px;letter-spacing:0;">(optional)</span></div>
+      <textarea class="details-textarea" id="item-details" rows="3" placeholder="e.g. Nike Air Force 1, size 10, white — or Levi's 501, size 32x30, vintage wash"></textarea>
+      <div class="details-hint">Help the AI if it misidentifies the item. Add brand, size, model, color, or anything else useful.</div>
     </div>
 
     <div class="price-input-row">
@@ -289,6 +304,9 @@ function handleFile(event) {
   if (!file) return;
   selectedFile = file;
 
+  // Show details field
+  document.getElementById('details-row').classList.add('visible');
+
   // Reset previous result whenever a new photo is chosen
   document.getElementById('result-card').classList.remove('show');
   document.getElementById('error-card').classList.remove('show');
@@ -357,9 +375,12 @@ async function scanItem() {
     const base64Image = await fileToBase64(selectedFile);
     const conditionMap = { great: 'excellent/like new', good: 'good used condition', fair: 'fair condition with visible wear', poor: 'poor condition, heavily worn or damaged' };
 
+    const extraDetails = document.getElementById('item-details').value.trim();
+
     const prompt = `You are Stackd, an AI resale profit advisor. Analyze this secondhand item image.
 
 Condition: ${conditionMap[selectedCondition]}
+${extraDetails ? `Extra details from user: ${extraDetails}` : ''}
 ${itemPrice > 0 ? `Buyer paid: $${itemPrice.toFixed(2)}` : 'Purchase price: not specified'}
 Target platforms: ${platforms}
 Platform fee rate: ${(feeRate * 100).toFixed(1)}%
@@ -491,6 +512,8 @@ function resetScan() {
   document.getElementById('drop-label').style.display = 'block';
   document.getElementById('drop-sub').style.display = 'block';
   document.getElementById('file-input').value = '';
+  document.getElementById('item-details').value = '';
+  document.getElementById('details-row').classList.remove('visible');
   document.getElementById('item-price').value = '';
   document.getElementById('result-card').classList.remove('show');
   document.getElementById('error-card').classList.remove('show');

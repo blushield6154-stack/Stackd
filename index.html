@@ -117,8 +117,8 @@
   .error-msg { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
 
   .details-row { padding: 0 20px; max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; border-bottom: 0px solid #222; }
-  .details-row.visible { max-height: 160px; padding: 16px 20px; border-bottom: 1px solid #222; }
-  .details-textarea { width: 100%; background: var(--gray-mid); border: 1.5px solid #333; border-radius: 10px; color: var(--white); font-family: 'DM Sans', sans-serif; font-size: 14px; padding: 12px 14px; outline: none; resize: none; transition: border-color 0.15s; line-height: 1.5; }
+  .details-row.visible { max-height: 180px; padding: 16px 20px; border-bottom: 1px solid #222; }
+  .details-textarea { width: 100%; background: var(--gray-mid); border: 1.5px solid #333; border-radius: 10px; color: var(--white); font-family: 'DM Sans', sans-serif; font-size: 13px; padding: 10px 12px; outline: none; resize: none; transition: border-color 0.15s; line-height: 1.5; min-height: 44px; }
   .details-textarea:focus { border-color: var(--accent); }
   .details-textarea::placeholder { color: #444; }
   .details-hint { font-size: 11px; color: #444; margin-top: 8px; line-height: 1.5; }
@@ -165,8 +165,8 @@
     <!-- EXTRA DETAILS (slides open after photo selected) -->
     <div class="details-row" id="details-row">
       <div class="field-label">Add details <span style="color:#555;font-size:10px;letter-spacing:0;">(optional)</span></div>
-      <textarea class="details-textarea" id="item-details" rows="3" placeholder="e.g. Nike Air Force 1, size 10, white — or Levi's 501, size 32x30, vintage wash"></textarea>
-      <div class="details-hint">Help the AI if it misidentifies the item. Add brand, size, model, color, or anything else useful.</div>
+      <textarea class="details-textarea" id="item-details" rows="3" placeholder="Brand, size, color, model..."></textarea>
+      <div class="details-hint">Optional — add brand, size, or model if the AI gets it wrong.</div>
     </div>
 
     <div class="price-input-row">

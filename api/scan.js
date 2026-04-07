@@ -106,6 +106,9 @@ export default async function handler(req, res) {
       if (ebaySearchTerm && EBAY_APP_ID) {
         ebayData = await getEbaySoldData(ebaySearchTerm);
       }
+      console.log('eBay search term:', ebaySearchTerm);
+      console.log('eBay App ID present:', !!EBAY_APP_ID);
+      console.log('eBay data result:', ebayData ? JSON.stringify(ebayData) : 'null - falling back to Claude estimates');
     }
 
     // Step 3 — Send Claude the full prompt with real eBay data if we got it

@@ -3,5 +3,6 @@
     "api/scan.js": {
       "maxDuration": 30
     }
-  }
+  },
+  "version": 2
 }

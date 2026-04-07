@@ -1,63 +1,96 @@
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const EBAY_APP_ID = process.env.EBAY_APP_ID;
+const EBAY_CERT_ID = process.env.EBAY_CERT_ID;
 
-async function getEbaySoldData(itemName) {
+// Cache token in memory for up to 2 hours
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getEbayToken() {
+  const now = Date.now();
+  if (cachedToken && now < tokenExpiry) return cachedToken;
+
+  const credentials = Buffer.from(`${EBAY_APP_ID}:${EBAY_CERT_ID}`).toString('base64');
+
+  const response = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${credentials}`
+    },
+    body: 'grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope'
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`eBay token error: ${err}`);
+  }
+
+  const data = await response.json();
+  cachedToken = data.access_token;
+  tokenExpiry = now + (data.expires_in - 300) * 1000;
+  return cachedToken;
+}
+
+async function getEbayBrowseData(itemName) {
   try {
+    const token = await getEbayToken();
     const query = encodeURIComponent(itemName);
-    const url = `https://svcs.ebay.com/services/search/FindingService/v1?OPERATION-NAME=findCompletedItems&SERVICE-VERSION=1.0.3&SECURITY-APPNAME=${EBAY_APP_ID}&RESPONSE-DATA-FORMAT=JSON&REST-PAYLOAD&keywords=${query}&itemFilter(0).name=SoldItemsOnly&itemFilter(0).value=true&itemFilter(1).name=ListingType&itemFilter(1).value=FixedPrice&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=20`;
+    const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${query}&limit=20&filter=conditions%3A%7BUSED%7C%7CVERY_GOOD%7C%7CGOOD%7C%7CACCEPTABLE%7D`;
 
-    const response = await fetch(url);
-    if (!response.ok) return null;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      console.error('eBay Browse API error:', response.status);
+      return null;
+    }
 
     const data = await response.json();
-    const items = data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item;
-
+    const items = data?.itemSummaries;
     if (!items || items.length === 0) return null;
 
     const prices = items
-      .map(item => parseFloat(item?.sellingStatus?.[0]?.currentPrice?.[0]?.__value__))
+      .map(item => parseFloat(item?.price?.value))
       .filter(p => !isNaN(p) && p > 0);
 
     if (prices.length === 0) return null;
 
-    const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
     const sorted = [...prices].sort((a, b) => a - b);
-    const low = sorted[0];
-    const high = sorted[sorted.length - 1];
+    const trimCount = Math.floor(sorted.length * 0.1);
+    const trimmed = sorted.slice(trimCount, sorted.length - trimCount);
+    const trimmedAvg = trimmed.length > 0
+      ? trimmed.reduce((a, b) => a + b, 0) / trimmed.length
+      : prices.reduce((a, b) => a + b, 0) / prices.length;
 
-    // Calculate avg days to sell from listing end dates
-    const endDates = items
-      .map(item => item?.listingInfo?.[0]?.endTime?.[0])
-      .filter(Boolean)
-      .map(d => new Date(d));
+    const low = trimmed[0] || sorted[0];
+    const high = trimmed[trimmed.length - 1] || sorted[sorted.length - 1];
 
-    const startDates = items
-      .map(item => item?.listingInfo?.[0]?.startTime?.[0])
-      .filter(Boolean)
-      .map(d => new Date(d));
+    const watchCounts = items.map(item => item?.watchCount || 0).filter(w => w > 0);
+    const avgWatchers = watchCounts.length > 0
+      ? watchCounts.reduce((a, b) => a + b, 0) / watchCounts.length
+      : 0;
 
-    let avgDays = null;
-    if (endDates.length > 0 && startDates.length > 0) {
-      const diffs = endDates.map((end, i) => {
-        if (!startDates[i]) return null;
-        return (end - startDates[i]) / (1000 * 60 * 60 * 24);
-      }).filter(d => d !== null && d >= 0 && d <= 90);
-
-      if (diffs.length > 0) {
-        avgDays = Math.round(diffs.reduce((a, b) => a + b, 0) / diffs.length);
-      }
-    }
+    const demandLevel = avgWatchers > 10 ? 'High' : avgWatchers > 3 ? 'Medium' : 'Low';
+    const soldPriceEstimate = trimmedAvg * 0.85;
 
     return {
-      avgPrice: Math.round(avg * 100) / 100,
-      lowPrice: Math.round(low * 100) / 100,
-      highPrice: Math.round(high * 100) / 100,
-      soldCount: prices.length,
-      avgDaysToSell: avgDays,
-      source: 'ebay_live'
+      askingAvg: Math.round(trimmedAvg * 100) / 100,
+      estimatedSoldAvg: Math.round(soldPriceEstimate * 100) / 100,
+      lowPrice: Math.round(low * 0.85 * 100) / 100,
+      highPrice: Math.round(high * 0.85 * 100) / 100,
+      listingCount: items.length,
+      avgWatchers: Math.round(avgWatchers),
+      demandLevel,
+      source: 'ebay_browse'
     };
-
   } catch (err) {
-    console.error('eBay API error:', err.message);
+    console.error('eBay Browse error:', err.message);
     return null;
   }
 }
@@ -74,12 +107,12 @@ export default async function handler(req, res) {
     const { image, mediaType, prompt } = req.body;
     if (!image || !prompt) return res.status(400).json({ error: 'Missing image or prompt' });
 
-    // Step 1 — Ask Claude to identify the item only first
+    // Step 1 — Identify item
     const identifyResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'x-api-key': ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
@@ -89,7 +122,7 @@ export default async function handler(req, res) {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: image } },
-            { type: 'text', text: 'Identify this item in 3-6 words for an eBay search. Brand and model if visible. Just the search term, nothing else. Example: "Nike Air Force 1 white" or "Levi 501 jeans vintage" or "KitchenAid stand mixer red"' }
+            { type: 'text', text: 'Identify this item in 3-6 words for an eBay search. Brand and model if visible. Just the search term, nothing else. Example: "Nike Air Force 1 white" or "Levi 501 jeans" or "KitchenAid stand mixer"' }
           ]
         }]
       })
@@ -101,34 +134,29 @@ export default async function handler(req, res) {
     if (identifyResponse.ok) {
       const identifyData = await identifyResponse.json();
       ebaySearchTerm = identifyData.content[0].text.trim().replace(/['"]/g, '');
-
-      // Step 2 — Pull real eBay sold data using that search term
-      if (ebaySearchTerm && EBAY_APP_ID) {
-        ebayData = await getEbaySoldData(ebaySearchTerm);
-      }
       console.log('eBay search term:', ebaySearchTerm);
-      console.log('eBay App ID present:', !!EBAY_APP_ID);
-      console.log('eBay data result:', ebayData ? JSON.stringify(ebayData) : 'null - falling back to Claude estimates');
+
+      if (ebaySearchTerm && EBAY_APP_ID && EBAY_CERT_ID) {
+        ebayData = await getEbayBrowseData(ebaySearchTerm);
+      }
+      console.log('eBay data:', ebayData ? JSON.stringify(ebayData) : 'null - using Claude estimates');
     }
 
-    // Step 3 — Send Claude the full prompt with real eBay data if we got it
+    // Step 2 — Full scan with real data injected
     const ebayContext = ebayData
-      ? `\n\nREAL EBAY SOLD DATA (last 90 days, ${ebayData.soldCount} sales):
-- Average sold price: $${ebayData.avgPrice}
-- Price range: $${ebayData.lowPrice} - $${ebayData.highPrice}
-- Average days to sell: ${ebayData.avgDaysToSell !== null ? ebayData.avgDaysToSell + ' days' : 'unknown'}
-- Sales volume: ${ebayData.soldCount} units sold recently
+      ? `\n\nREAL EBAY MARKET DATA (${ebayData.listingCount} current used listings):
+- Estimated sold price range: $${ebayData.lowPrice} - $${ebayData.highPrice}
+- Estimated average sold price: $${ebayData.estimatedSoldAvg}
+- Demand: ${ebayData.demandLevel} (avg ${ebayData.avgWatchers} watchers per listing)
 
-Use this real data for your price estimates. Do not override it with estimates unless the data seems clearly wrong for the item shown.`
-      : '\n\nNo live eBay data available — use your training knowledge for price estimates.';
-
-    const fullPrompt = prompt + ebayContext;
+Use $${ebayData.estimatedSoldAvg} as your sell_price_avg. Adjust for condition. Keep range between $${ebayData.lowPrice} and $${ebayData.highPrice}.`
+      : '\n\nNo live eBay data available — use your training knowledge for estimates.';
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'x-api-key': ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
@@ -138,7 +166,7 @@ Use this real data for your price estimates. Do not override it with estimates u
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: image } },
-            { type: 'text', text: fullPrompt }
+            { type: 'text', text: prompt + ebayContext }
           ]
         }]
       })
@@ -152,11 +180,12 @@ Use this real data for your price estimates. Do not override it with estimates u
     const data = await response.json();
     return res.status(200).json({
       content: data.content[0].text,
-      ebayData: ebayData,
-      ebaySearchTerm: ebaySearchTerm
+      ebayData,
+      ebaySearchTerm
     });
 
   } catch (err) {
+    console.error('Handler error:', err.message);
     return res.status(500).json({ error: err.message || 'Server error' });
   }
 }
